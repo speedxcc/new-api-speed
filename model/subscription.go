@@ -178,6 +178,11 @@ type SubscriptionPlan struct {
 	// Downgrade user group on expiry (empty = revert to the group held before purchase)
 	DowngradeGroup string `json:"downgrade_group" gorm:"type:varchar(64);default:''"`
 
+	// BindGroup binds this plan's quota to a specific group. Empty = group-agnostic (legacy behavior).
+	// When set, the subscription only covers requests whose UsingGroup matches this value;
+	// requests on other groups fall back to the wallet.
+	BindGroup string `json:"bind_group" gorm:"type:varchar(64);default:''"`
+
 	// Total quota (amount in quota units, 0 = unlimited)
 	TotalAmount int64 `json:"total_amount" gorm:"type:bigint;not null;default:0"`
 
@@ -272,6 +277,10 @@ type UserSubscription struct {
 
 	// Downgrade target group on expiry (snapshot from plan; empty = revert to PrevUserGroup)
 	DowngradeGroup string `json:"downgrade_group" gorm:"type:varchar(64);default:''"`
+
+	// BindGroup snapshot from plan. When non-empty, this subscription only covers requests
+	// whose UsingGroup matches; requests on other groups fall back to the wallet.
+	BindGroup string `json:"bind_group" gorm:"type:varchar(64);default:''"`
 
 	// Whether wallet fallback is allowed after this subscription's quota is exhausted (snapshot from plan)
 	AllowWalletOverflow bool `json:"allow_wallet_overflow"`
@@ -547,6 +556,7 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 		UpgradeGroup:        upgradeGroup,
 		PrevUserGroup:       prevGroup,
 		DowngradeGroup:      strings.TrimSpace(plan.DowngradeGroup),
+		BindGroup:           strings.TrimSpace(plan.BindGroup),
 		AllowWalletOverflow: allowWalletOverflow,
 		CreatedAt:           common.GetTimestamp(),
 		UpdatedAt:           common.GetTimestamp(),
@@ -1270,7 +1280,10 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 }
 
 // PreConsumeUserSubscription pre-consumes from any active subscription total quota.
-func PreConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
+// usingGroup is the group of the current request: when a subscription's BindGroup is non-empty,
+// it only matches requests whose usingGroup equals BindGroup; a subscription with empty BindGroup
+// matches any group (legacy behavior). Empty usingGroup disables group filtering entirely.
+func PreConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64, usingGroup string) (*SubscriptionPreConsumeResult, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
 	}
@@ -1324,6 +1337,10 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			}
 			if err := maybeResetUserSubscriptionWithPlanTx(tx, &sub, plan, now); err != nil {
 				return err
+			}
+			// 分组匹配:套餐绑定了分组时,必须与本次请求的分组一致;绑定为空则兼容所有分组(旧行为)
+			if sub.BindGroup != "" && usingGroup != "" && sub.BindGroup != usingGroup {
+				continue
 			}
 			usedBefore := sub.AmountUsed
 			if sub.AmountTotal > 0 {

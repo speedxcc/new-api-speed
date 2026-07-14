@@ -341,6 +341,10 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if _, ok := c.Get("specific_channel_id"); ok {
 		return false
 	}
+	// 分组级错误透传：开启了透传的分组，上游错误直接透传不重试（仅影响上游错误，channel: 错误已在上面放行重试）
+	if setting.IsGroupPassThrough(c.GetString("group")) {
+		return false
+	}
 	code := openaiErr.StatusCode
 	if code >= 200 && code < 300 {
 		return false
@@ -624,6 +628,10 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 		return false
 	}
 	if _, ok := c.Get("specific_channel_id"); ok {
+		return false
+	}
+	// 分组级错误透传：开启了透传的分组，上游错误直接透传不重试
+	if setting.IsGroupPassThrough(c.GetString("group")) {
 		return false
 	}
 	if taskErr.StatusCode == http.StatusTooManyRequests {

@@ -70,6 +70,7 @@ type GroupFormValues = {
   AutoGroups: string
   DefaultUseAutoGroup: boolean
   GroupSpecialUsableGroup: string
+  GroupPassThrough: string
 }
 
 type GroupRatioFormProps = {
@@ -181,6 +182,53 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               onChange={(value) =>
                 handleFieldChange('GroupSpecialUsableGroup', value)
               }
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupPassThrough'
+              render={({ field }) => {
+                const ptMap = safeJsonParse<Record<string, boolean>>(
+                  field.value,
+                  { fallback: {}, silent: true }
+                )
+                const toggleGroup = (g: string, checked: boolean) => {
+                  const map = { ...ptMap }
+                  if (checked) {
+                    map[g] = true
+                  } else {
+                    delete map[g]
+                  }
+                  field.onChange(JSON.stringify(map))
+                }
+                return (
+                  <FormItem>
+                    <FormLabel>{t('Group error passthrough')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'When enabled, upstream API errors for this group (e.g. GLM 421 five-hour limit) are passed through to the client directly without retrying other channels.'
+                      )}
+                    </FormDescription>
+                    <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
+                      {groupNames.map((g) => (
+                        <div
+                          key={g}
+                          className='flex items-center justify-between rounded-md border px-3 py-2'
+                        >
+                          <span className='text-sm font-medium'>{g}</span>
+                          <Switch
+                            checked={!!ptMap[g]}
+                            onCheckedChange={(checked) =>
+                              toggleGroup(g, checked)
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
             />
 
             <FormField

@@ -57,6 +57,7 @@ const OPTION_KEYS = [
   'group_ratio_setting.group_special_usable_group',
   'AutoGroups',
   'DefaultUseAutoGroup',
+  'GroupPassThrough',
 ];
 
 function parseJSONSafe(str, fallback) {
@@ -81,6 +82,7 @@ export default function GroupRatioSettings(props) {
     'group_ratio_setting.group_special_usable_group': '',
     AutoGroups: '',
     DefaultUseAutoGroup: false,
+    GroupPassThrough: '{}',
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -249,6 +251,35 @@ export default function GroupRatioSettings(props) {
           groupNames={groupNames}
           onChange={handleSpecialUsableChange}
         />
+      </Form.Section>
+
+      <Form.Section text={t('分组错误透传')}>
+        <Text type='tertiary' size='small' style={{ display: 'block', marginBottom: 12 }}>
+          {t('开启后，该分组的上游 API 错误（如 GLM 的 421 五小时限制）将直接透传给客户端，不再重试其他渠道。适用于上游限流是预期行为、重试无意义的场景。')}
+        </Text>
+        {groupNames.map((g) => {
+          const ptMap = parseJSONSafe(inputs.GroupPassThrough, {});
+          return (
+            <div key={g} className='flex items-center justify-between py-2'>
+              <Text>{g}</Text>
+              <Switch
+                checked={!!ptMap[g]}
+                onChange={(checked) => {
+                  const map = parseJSONSafe(inputs.GroupPassThrough, {});
+                  if (checked) {
+                    map[g] = true;
+                  } else {
+                    delete map[g];
+                  }
+                  setInputs((prev) => ({
+                    ...prev,
+                    GroupPassThrough: JSON.stringify(map),
+                  }));
+                }}
+              />
+            </div>
+          );
+        })}
       </Form.Section>
     </Form>
   );

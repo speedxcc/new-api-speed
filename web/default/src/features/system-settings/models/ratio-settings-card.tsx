@@ -132,6 +132,7 @@ const createGroupSchema = (t: Translate) =>
     }),
     DefaultUseAutoGroup: z.boolean(),
     GroupSpecialUsableGroup: createJsonStringField(t),
+    GroupPassThrough: createJsonStringField(t),
   })
 
 type ModelFormValues = z.infer<ReturnType<typeof createModelSchema>>
@@ -208,6 +209,7 @@ export function RatioSettingsCard({
     GroupSpecialUsableGroup: normalizeJsonString(
       groupDefaults.GroupSpecialUsableGroup
     ),
+    GroupPassThrough: normalizeJsonString(groupDefaults.GroupPassThrough),
   })
   const modelSchema = useMemo(() => createModelSchema(t), [t])
   const groupSchema = useMemo(() => createGroupSchema(t), [t])
@@ -245,6 +247,7 @@ export function RatioSettingsCard({
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
+      GroupPassThrough: formatJsonForTextarea(groupDefaults.GroupPassThrough),
     },
   })
 
@@ -294,6 +297,7 @@ export function RatioSettingsCard({
       GroupSpecialUsableGroup: normalizeJsonString(
         groupDefaults.GroupSpecialUsableGroup
       ),
+      GroupPassThrough: normalizeJsonString(groupDefaults.GroupPassThrough),
     }
 
     groupForm.reset({
@@ -306,6 +310,7 @@ export function RatioSettingsCard({
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
       ),
+      GroupPassThrough: formatJsonForTextarea(groupDefaults.GroupPassThrough),
     })
   }, [groupDefaults, groupForm])
 
@@ -364,6 +369,7 @@ export function RatioSettingsCard({
         GroupSpecialUsableGroup: normalizeJsonString(
           values.GroupSpecialUsableGroup
         ),
+        GroupPassThrough: normalizeJsonString(values.GroupPassThrough),
       }
 
       // Map form field names to API keys (most are 1:1, except GroupSpecialUsableGroup)

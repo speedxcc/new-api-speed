@@ -168,8 +168,17 @@ func (c ChannelInfo) Value() (driver.Value, error) {
 
 // Scan implements sql.Scanner interface
 func (c *ChannelInfo) Scan(value interface{}) error {
-	bytesValue, _ := value.([]byte)
-	return common.Unmarshal(bytesValue, c)
+	// 兼容不同 driver:MySQL/PG 返回 []byte,部分 SQLite driver 返回 string
+	switch v := value.(type) {
+	case []byte:
+		return common.Unmarshal(v, c)
+	case string:
+		return common.Unmarshal([]byte(v), c)
+	case nil:
+		return nil
+	default:
+		return fmt.Errorf("cannot scan %T into ChannelInfo", value)
+	}
 }
 
 func (channel *Channel) GetKeys() []string {
