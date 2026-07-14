@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -224,4 +225,57 @@ func GenerateFinalUsageResponse(id string, createAt int64, model string, usage d
 		Choices:           make([]dto.ChatCompletionsStreamResponseChoice, 0),
 		Usage:             &usage,
 	}
+}
+
+// GetInsufficientQuotaMessage 根据余额类错误的来源，返回适合展示给用户的提示文案。
+// errMsg 是 NewAPIError.Error() 的内容。按消息特征区分订阅/钱包场景。
+func GetInsufficientQuotaMessage(errMsg string) string {
+	lower := strings.ToLower(errMsg)
+	hasSubscription := strings.Contains(lower, "订阅") || strings.Contains(lower, "subscription")
+	hasWallet := strings.Contains(lower, "用户额度") || strings.Contains(lower, "预扣费额度") ||
+		strings.Contains(lower, "user quota") || strings.Contains(lower, "token")
+	switch {
+	case hasSubscription && hasWallet:
+		return "订阅额度和钱包余额均已不足，请充值或续费后重试"
+	case hasSubscription:
+		return "订阅额度已用完，请续费或充值余额后重试"
+	default:
+		return "余额不足，请充值后重试"
+	}
+}
+
+// WriteInsufficientQuotaStreamReply 写入一条伪装成正常对话回复的 SSE 流，
+// 用于流式请求余额不足时友好提示（而非返回 HTTP 403 JSON error）。
+// 这样流式客户端的聊天窗口能像正常回复一样显示提示文字。
+func WriteInsufficientQuotaStreamReply(c *gin.Context, model string, message string) {
+	SetEventStreamHeaders(c)
+
+	id := GetResponseID(c)
+	createAt := common.GetTimestamp()
+	finishReason := "stop"
+
+	// 1. role chunk（assistant 角色，空 content）
+	_ = ObjectData(c, GenerateStartEmptyResponse(id, createAt, model, nil))
+
+	// 2. content chunk（提示文字）
+	contentChunk := &dto.ChatCompletionsStreamResponse{
+		Id:      id,
+		Object:  "chat.completion.chunk",
+		Created: createAt,
+		Model:   model,
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					Content: common.GetPointer(message),
+				},
+			},
+		},
+	}
+	_ = ObjectData(c, contentChunk)
+
+	// 3. stop chunk
+	_ = ObjectData(c, GenerateStopResponse(id, createAt, model, finishReason))
+
+	// 4. [DONE]
+	Done(c)
 }

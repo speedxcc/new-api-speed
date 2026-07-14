@@ -74,6 +74,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
+		relayInfo   *relaycommon.RelayInfo
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
@@ -99,9 +100,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					"error": newAPIError.ToClaudeError(),
 				})
 			default:
-				c.JSON(newAPIError.StatusCode, gin.H{
-					"error": newAPIError.ToOpenAIError(),
-				})
+				// 流式 + OpenAI 格式 + 余额类错误：伪装成正常 SSE 对话回复
+				// 让流式客户端的聊天窗口能像正常回复一样显示提示文字
+				if relayInfo != nil && relayInfo.IsStream && relayFormat == types.RelayFormatOpenAI &&
+					(newAPIError.GetErrorCode() == types.ErrorCodeInsufficientUserQuota ||
+						newAPIError.GetErrorCode() == types.ErrorCodePreConsumeTokenQuotaFailed) {
+					// 按余额来源区分提示文案（钱包不足 / 订阅不足 / 两者都不足）
+					msg := helper.GetInsufficientQuotaMessage(newAPIError.Error())
+					helper.WriteInsufficientQuotaStreamReply(c, relayInfo.OriginModelName, msg)
+					newAPIError = nil // 已写入 SSE 流，阻止后续 c.JSON 再次写入
+				} else {
+					c.JSON(newAPIError.StatusCode, gin.H{
+						"error": newAPIError.ToOpenAIError(),
+					})
+				}
 			}
 		}
 	}()
@@ -117,7 +129,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
+	relayInfo, err = relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
