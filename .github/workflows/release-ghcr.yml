@@ -1,0 +1,95 @@
+# ===========================================================================
+# 手动触发：构建 new-api Docker 镜像并推送到 ghcr.io
+#
+# 使用方法：
+#   1. 在 GitHub 仓库页面 → Actions → "Release Docker Image (GHCR)" → Run workflow
+#   2. 填入版本标签（如 v1.0.0），留空则只更新 latest
+#   3. 构建完成后，到仓库 Packages 页面把镜像设为 public（首次需要）
+#   4. VPS 上 docker pull ghcr.io/speedxcc/new-api-speed:latest 更新
+# ===========================================================================
+name: Release Docker Image (GHCR)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: '版本标签 (如 v1.0.0, 留空则只更新 latest)'
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  # 镜像名 = 仓库所有者/仓库名（自动小写）
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 确保有 VERSION 文件
+        run: |
+          if [ ! -f VERSION ] || [ ! -s VERSION ]; then
+            echo "dev" > VERSION
+          fi
+          echo "VERSION = $(cat VERSION)"
+
+      - name: 登录到 ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 计算镜像标签
+        id: tags
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          INPUT_TAG="${{ github.event.inputs.version_tag }}"
+          if [ -n "$INPUT_TAG" ]; then
+            echo "tags<<EOF" >> $GITHUB_OUTPUT
+            echo "${IMAGE}:${INPUT_TAG}" >> $GITHUB_OUTPUT
+            echo "${IMAGE}:latest" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "version=${INPUT_TAG}" >> $GITHUB_OUTPUT
+          else
+            echo "tags=${IMAGE}:latest" >> $GITHUB_OUTPUT
+            echo "version=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.release
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 构建摘要
+        run: |
+          echo "### ✅ Docker 镜像已发布" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "版本: \`${{ steps.tags.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "镜像地址:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.tags.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "VPS 拉取命令:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ github.repository }}:${{ steps.tags.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
