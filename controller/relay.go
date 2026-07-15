@@ -95,10 +95,19 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
 			case types.RelayFormatClaude:
-				c.JSON(newAPIError.StatusCode, gin.H{
-					"type":  "error",
-					"error": newAPIError.ToClaudeError(),
-				})
+				// 流式 + 余额类错误：伪装成正常 Claude SSE 对话回复
+				if relayInfo != nil && relayInfo.IsStream &&
+					(newAPIError.GetErrorCode() == types.ErrorCodeInsufficientUserQuota ||
+						newAPIError.GetErrorCode() == types.ErrorCodePreConsumeTokenQuotaFailed) {
+					msg := helper.GetInsufficientQuotaMessage(newAPIError.Error())
+					helper.WriteInsufficientQuotaClaudeStreamReply(c, relayInfo.OriginModelName, msg)
+					newAPIError = nil
+				} else {
+					c.JSON(newAPIError.StatusCode, gin.H{
+						"type":  "error",
+						"error": newAPIError.ToClaudeError(),
+					})
+				}
 			default:
 				// 流式 + OpenAI 格式 + 余额类错误：伪装成正常 SSE 对话回复
 				// 让流式客户端的聊天窗口能像正常回复一样显示提示文字

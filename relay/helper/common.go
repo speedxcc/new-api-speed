@@ -279,3 +279,64 @@ func WriteInsufficientQuotaStreamReply(c *gin.Context, model string, message str
 	// 4. [DONE]
 	Done(c)
 }
+
+// WriteInsufficientQuotaClaudeStreamReply 写入 Claude/Anthropic 格式的伪装 SSE 回复，
+// 用于流式请求余额不足时友好提示。Claude SSE 格式与 OpenAI 不同，使用 event: 前缀。
+func WriteInsufficientQuotaClaudeStreamReply(c *gin.Context, model string, message string) {
+	SetEventStreamHeaders(c)
+
+	id := GetResponseID(c)
+
+	// Claude SSE 每条消息格式: event: xxx\ndata: {...}\n\n
+	writeClaudeEvent := func(event string, data interface{}) {
+		jsonData, _ := common.Marshal(data)
+		_ = StringData(c, string(jsonData))
+	}
+
+	// 1. message_start
+	writeClaudeEvent("message_start", map[string]interface{}{
+		"type": "message_start",
+		"message": map[string]interface{}{
+			"id":            id,
+			"type":          "message",
+			"role":          "assistant",
+			"model":         model,
+			"content":       []interface{}{},
+			"stop_reason":   nil,
+			"stop_sequence": nil,
+			"usage":         map[string]interface{}{"input_tokens": 0, "output_tokens": 0},
+		},
+	})
+
+	// 2. content_block_start
+	writeClaudeEvent("content_block_start", map[string]interface{}{
+		"type":          "content_block_start",
+		"index":         0,
+		"content_block": map[string]interface{}{"type": "text", "text": ""},
+	})
+
+	// 3. content_block_delta (提示文字)
+	writeClaudeEvent("content_block_delta", map[string]interface{}{
+		"type":  "content_block_delta",
+		"index": 0,
+		"delta": map[string]interface{}{"type": "text_delta", "text": message},
+	})
+
+	// 4. content_block_stop
+	writeClaudeEvent("content_block_stop", map[string]interface{}{
+		"type":  "content_block_stop",
+		"index": 0,
+	})
+
+	// 5. message_delta
+	writeClaudeEvent("message_delta", map[string]interface{}{
+		"type":  "message_delta",
+		"delta": map[string]interface{}{"stop_reason": "end_turn", "stop_sequence": nil},
+		"usage": map[string]interface{}{"output_tokens": 1},
+	})
+
+	// 6. message_stop
+	writeClaudeEvent("message_stop", map[string]interface{}{
+		"type": "message_stop",
+	})
+}
