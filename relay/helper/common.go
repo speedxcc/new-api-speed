@@ -287,10 +287,12 @@ func WriteInsufficientQuotaClaudeStreamReply(c *gin.Context, model string, messa
 
 	id := GetResponseID(c)
 
-	// Claude SSE 每条消息格式: event: xxx\ndata: {...}\n\n
-	writeClaudeEvent := func(event string, data interface{}) {
+	// Claude SSE 每条消息需要 event: 前缀(Anthropic 规范，Claude Code 严格依赖此格式)
+	writeClaudeEvent := func(eventType string, data interface{}) {
 		jsonData, _ := common.Marshal(data)
-		_ = StringData(c, string(jsonData))
+		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", eventType)})
+		c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonData)})
+		_ = FlushWriter(c)
 	}
 
 	// 1. message_start
