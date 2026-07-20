@@ -1423,6 +1423,8 @@
     "Display Options": "Display Options",
     "Display Token Statistics": "Display Token Statistics",
     "Displayed in": "Displayed in",
+    "Subscription Balance Priority": "Subscription Balance Priority",
+    "When enabled, the billing endpoints report the active subscription quota instead of token/user quota": "When enabled, the billing endpoints report the active subscription quota instead of token/user quota",
     "Displays the mobile sidebar.": "Displays the mobile sidebar.",
     "Do not over-trust this feature. IP may be spoofed. Please use with nginx, CDN and other gateways.": "Do not over-trust this feature. IP may be spoofed. Please use with nginx, CDN and other gateways.",
     "Do not repeat check-in; only once per day": "Do not repeat check-in; only once per day",

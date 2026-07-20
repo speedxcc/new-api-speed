@@ -1423,6 +1423,8 @@
     "Display Options": "顯示選項",
     "Display Token Statistics": "顯示 Token 統計資訊",
     "Displayed in": "顯示單位",
+    "Subscription Balance Priority": "訂閱套餐餘額優先",
+    "When enabled, the billing endpoints report the active subscription quota instead of token/user quota": "開啟後，帳單介面將回傳當前訂閱套餐的額度，而非令牌/使用者額度",
     "Displays the mobile sidebar.": "顯示流動側邊欄。",
     "Do not over-trust this feature. IP may be spoofed. Please use with nginx, CDN and other gateways.": "請勿過度信任此功能，IP 可能被偽造，請配合 nginx 和 cdn 等閘道使用",
     "Do not repeat check-in; only once per day": "請勿重複簽到；每天僅一次",

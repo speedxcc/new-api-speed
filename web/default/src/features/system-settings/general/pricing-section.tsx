@@ -64,6 +64,7 @@ const createPricingSchema = (t: (key: string) => string) =>
         .min(0.0001, t('Exchange rate must be greater than 0')),
       DisplayInCurrencyEnabled: z.boolean(),
       DisplayTokenStatEnabled: z.boolean(),
+      SubscriptionBalanceEnabled: z.boolean(),
       general_setting: z.object({
         quota_display_type: z.enum(['USD', 'CNY', 'TOKENS', 'CUSTOM']),
         custom_currency_symbol: z.string().max(8).optional(),
@@ -357,6 +358,31 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                     <FormLabel>{t('Display Token Statistics')}</FormLabel>
                     <FormDescription>
                       {t('Show token usage statistics in the UI')}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='SubscriptionBalanceEnabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>
+                      {t('Subscription Balance Priority')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'When enabled, the billing endpoints report the active subscription quota instead of token/user quota'
+                      )}
                     </FormDescription>
                   </SettingsSwitchContent>
                   <FormControl>

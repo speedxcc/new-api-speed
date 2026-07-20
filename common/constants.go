@@ -63,6 +63,11 @@ var QuotaPerUnit = 500 * 1000.0 // $0.002 / 1K tokens
 // 保留旧变量以兼容历史逻辑，实际展示由 general_setting.quota_display_type 控制
 var DisplayInCurrencyEnabled = true
 var DisplayTokenStatEnabled = true
+// SubscriptionBalanceEnabled controls the OpenAI-compatible billing endpoints
+// (/dashboard/billing/*): when true (default) an active subscription plan's
+// quota/usage is reported; when false the endpoints fall back to legacy
+// token/user quota even if a subscription exists.
+var SubscriptionBalanceEnabled = true
 var DrawingEnabled = true
 var TaskEnabled = true
 var DataExportEnabled = true
