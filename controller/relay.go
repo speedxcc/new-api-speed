@@ -92,6 +92,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	defer func() {
 		if newAPIError != nil {
+			// 原样透传分支已在 handler 里直接写入上游响应，这里跳过错误格式化，避免重复写
+			if c.GetBool(helper.RawPassthroughWrittenKey) {
+				return
+			}
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {

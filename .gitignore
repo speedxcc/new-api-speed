@@ -41,3 +41,9 @@ service/relayconvert/chat_responses_live_local_test.go
 service/openaicompat/chat_responses_live_local_test.go
 go.work
 go.work.sum
+
+# ZCode 工具目录(本地)
+.zcode/
+
+# 本地调试临时文件
+ch_data.json
