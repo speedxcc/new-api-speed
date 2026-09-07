@@ -29,12 +29,19 @@ import {
 import { Dialog } from '@/components/dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
+import { Progress } from '@/components/ui/progress'
 import { formatCurrencyFromUSD } from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 
-import { getCodexUsage, updateChannelBalance } from '../../api'
-import { channelsQueryKeys } from '../../lib'
+import { getCodexUsage, getZhipuUsage, updateChannelBalance } from '../../api'
+import {
+  channelsQueryKeys,
+  formatUsageCountdown,
+  isZhipuUsageChannel,
+} from '../../lib'
+import type { ZhipuUsageInfo, ZhipuUsageWindow } from '../../types'
 import { useChannels } from '../channels-provider'
 import {
   CodexUsageDialog,
@@ -61,8 +68,10 @@ export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
   )
   const [codexUsageResponse, setCodexUsageResponse] =
     useState<CodexUsageDialogData | null>(null)
+  const [zhipuUsage, setZhipuUsage] = useState<ZhipuUsageInfo | null>(null)
 
   const isCodex = currentRow?.type === 57
+  const isZhipu = currentRow ? isZhipuUsageChannel(currentRow) : false
 
   const handleQueryCodexUsage = async () => {
     const row = currentRow
@@ -83,12 +92,41 @@ export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
     }
   }
 
+  const handleQueryZhipuUsage = async () => {
+    const row = currentRow
+    if (!row) return
+    setIsQuerying(true)
+    try {
+      const res = await getZhipuUsage(row.id)
+      if (!res.success || !res.data) {
+        throw new Error(res.message || t('Failed to fetch usage'))
+      }
+      setZhipuUsage(res.data)
+      void queryClient.invalidateQueries({
+        queryKey: channelsQueryKeys.lists(),
+      })
+    } catch (error: unknown) {
+      toast.error(
+        error instanceof Error ? error.message : t('Failed to fetch usage')
+      )
+    } finally {
+      setIsQuerying(false)
+    }
+  }
+
   useEffect(() => {
     if (!isCodex) return
     if (!props.open) return
     handleQueryCodexUsage()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.open, isCodex])
+
+  useEffect(() => {
+    if (!isZhipu) return
+    if (!props.open) return
+    handleQueryZhipuUsage()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open, isZhipu])
 
   if (!currentRow) return null
 
@@ -135,6 +173,7 @@ export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
     setBalanceUpdatedTime(null)
     setRawResponse(null)
     setCodexUsageResponse(null)
+    setZhipuUsage(null)
     props.onOpenChange(false)
   }
 
@@ -163,6 +202,72 @@ export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
         onRefresh={handleQueryCodexUsage}
         isRefreshing={isQuerying}
       />
+    )
+  }
+
+  if (isZhipu) {
+    return (
+      <Dialog
+        open={props.open}
+        onOpenChange={handleClose}
+        title={t('Plan Usage')}
+        description={
+          <>
+            {t('Plan usage for:')}
+            <strong>{currentRow.name}</strong>
+          </>
+        }
+        contentHeight='auto'
+        bodyClassName='space-y-4'
+        footer={
+          <Button variant='outline' onClick={handleClose} disabled={isQuerying}>
+            {t('Close')}
+          </Button>
+        }
+      >
+        <div className='space-y-4 py-4'>
+          {(zhipuUsage?.level || zhipuUsage?.mcp_monthly) && (
+            <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs'>
+              {zhipuUsage?.level && (
+                <span>
+                  {t('Level')}: {zhipuUsage.level}
+                </span>
+              )}
+              {zhipuUsage?.mcp_monthly && (
+                <span>
+                  {t('MCP Monthly')}: {zhipuUsage.mcp_monthly.used}/
+                  {zhipuUsage.mcp_monthly.total}
+                </span>
+              )}
+            </div>
+          )}
+          <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
+            <ZhipuWindowCard
+              title={t('5-Hour Window')}
+              window={zhipuUsage?.five_hour}
+            />
+            <ZhipuWindowCard
+              title={t('Weekly Window')}
+              window={zhipuUsage?.weekly}
+            />
+          </div>
+          {zhipuUsage && zhipuUsage.updated_at > 0 && (
+            <div className='text-muted-foreground text-xs'>
+              {t('Last updated:')}{' '}
+              {formatTimestampToDate(zhipuUsage.updated_at)}
+            </div>
+          )}
+          <Button
+            className='w-full'
+            onClick={handleQueryZhipuUsage}
+            disabled={isQuerying}
+          >
+            {isQuerying && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+            {!isQuerying && <RefreshCw className='mr-2 h-4 w-4' />}
+            {isQuerying ? t('Querying...') : t('Refresh Plan Usage')}
+          </Button>
+        </div>
+      </Dialog>
     )
   }
 
@@ -243,5 +348,59 @@ export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
         </Button>
       </div>
     </Dialog>
+  )
+}
+
+function ZhipuWindowCard(props: {
+  title: string
+  window?: ZhipuUsageWindow
+}) {
+  const { t } = useTranslation()
+  const { window } = props
+  const percent =
+    window && Number.isFinite(window.used_percent)
+      ? Math.round(window.used_percent)
+      : null
+  const countdown = window ? formatUsageCountdown(window.reset_at) : ''
+
+  return (
+    <Card size='sm' className='gap-0 py-0'>
+      <CardHeader className='p-3 pb-2'>
+        <div className='flex items-start justify-between gap-3'>
+          <CardTitle className='text-sm font-semibold'>{props.title}</CardTitle>
+          <div
+            className='text-xl leading-none font-semibold tabular-nums'
+            aria-label={`${props.title} used: ${percent}%`}
+          >
+            {percent !== null ? `${percent}%` : '-'}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className='p-3 pt-0'>
+        {percent !== null ? (
+          <Progress value={percent} className='mt-1' />
+        ) : (
+          <div className='text-muted-foreground mt-1 text-sm'>-</div>
+        )}
+        <div className='mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2'>
+          <div className='min-w-0'>
+            <div className='text-muted-foreground text-[11px]'>
+              {t('Reset at:')}
+            </div>
+            <div className='break-all tabular-nums'>
+              {window && window.reset_at > 0
+                ? formatTimestampToDate(window.reset_at)
+                : '-'}
+            </div>
+          </div>
+          <div className='min-w-0 sm:text-right'>
+            <div className='text-muted-foreground text-[11px]'>
+              {t('Resets in:')}
+            </div>
+            <div className='tabular-nums'>{countdown || '-'}</div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

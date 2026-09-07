@@ -22,12 +22,20 @@ import { formatTimestampToDate } from '@/lib/format'
 import {
   CHANNEL_STATUS_CONFIG,
   CHANNEL_TYPES,
+  CHANNEL_TYPE_ANTHROPIC,
+  CHANNEL_TYPE_ZHIPU,
+  CHANNEL_TYPE_ZHIPU_V4,
   MULTI_KEY_STATUS_CONFIG,
   RESPONSE_TIME_CONFIG,
   RESPONSE_TIME_THRESHOLDS,
   TYPE_TO_KEY_PROMPT,
 } from '../constants'
-import type { Channel, ChannelSettings, ChannelOtherSettings } from '../types'
+import type {
+  Channel,
+  ChannelSettings,
+  ChannelOtherSettings,
+  ZhipuUsageInfo,
+} from '../types'
 
 // ============================================================================
 // Channel Type Utilities
@@ -353,6 +361,108 @@ export function getBalanceVariant(
     return 'warning'
   }
   return 'success'
+}
+
+// ============================================================================
+// Zhipu Plan Usage Utilities
+// ============================================================================
+
+const ZHIPU_HOST_SUFFIXES = ['bigmodel.cn', 'bigmodel.com', 'z.ai']
+
+/**
+ * 判断渠道是否支持智谱官方套餐用量查询：
+ * 智谱渠道（16/26），或 base_url 指向智谱域名的 Claude 渠道（GLM Coding Plan 常见配置）。
+ */
+export function isZhipuUsageChannel(
+  channel: Pick<Channel, 'type' | 'base_url'>
+): boolean {
+  if (
+    channel.type === CHANNEL_TYPE_ZHIPU ||
+    channel.type === CHANNEL_TYPE_ZHIPU_V4
+  ) {
+    return true
+  }
+  if (channel.type === CHANNEL_TYPE_ANTHROPIC) {
+    const base = (channel.base_url ?? '').trim()
+    if (!base) {
+      return false
+    }
+    try {
+      const url = new URL(base.includes('://') ? base : `https://${base}`)
+      const host = url.hostname.toLowerCase()
+      return ZHIPU_HOST_SUFFIXES.some(
+        (suffix) => host === suffix || host.endsWith(`.${suffix}`)
+      )
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+/**
+ * 解析渠道 usage_info 中持久化的智谱套餐用量
+ */
+export function parseZhipuUsageInfo(
+  raw: string | null | undefined
+): ZhipuUsageInfo | null {
+  if (!raw) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(raw) as ZhipuUsageInfo
+    return parsed?.provider === 'zhipu' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 套餐窗口用量徽章颜色：已用 ≥90% 红，≥70% 黄，否则绿
+ */
+export function getUsageVariant(
+  usedPercent: number
+): 'success' | 'warning' | 'danger' {
+  if (usedPercent >= 90) {
+    return 'danger'
+  }
+  if (usedPercent >= 70) {
+    return 'warning'
+  }
+  return 'success'
+}
+
+/**
+ * 距窗口重置的剩余时间紧凑格式：37m / 2h37m / 3d2h；已过期或未知返回 ''
+ */
+export function formatUsageCountdown(
+  resetAt: number,
+  nowMs: number = Date.now()
+): string {
+  if (!resetAt) {
+    return ''
+  }
+  const diffMinutes = Math.floor((resetAt * 1000 - nowMs) / 60000)
+  if (diffMinutes <= 0) {
+    return ''
+  }
+  const days = Math.floor(diffMinutes / 1440)
+  const hours = Math.floor((diffMinutes % 1440) / 60)
+  const minutes = diffMinutes % 60
+  if (days > 0) {
+    return `${days}d${hours}h`
+  }
+  if (hours > 0) {
+    return `${hours}h${minutes}m`
+  }
+  return `${minutes}m`
+}
+
+/**
+ * 用量百分比显示：四舍五入取整
+ */
+export function formatUsagePercent(percent: number): string {
+  return `${Math.round(percent)}%`
 }
 
 // ============================================================================

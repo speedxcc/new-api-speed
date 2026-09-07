@@ -53,6 +53,7 @@ export const channelSchema = z.object({
   models: z.string().default(''),
   group: z.string().default('default'),
   used_quota: z.number().default(0),
+  usage_info: z.string().nullish(), // 订阅套餐用量 JSON（如智谱 GLM Coding Plan 窗口用量）
   model_mapping: z.string().nullish(),
   status_code_mapping: z.string().nullish(),
   priority: z.number().nullish(),
@@ -198,6 +199,32 @@ export interface ChannelBalanceResponse {
   balance?: number
   currency?: string
   raw_response?: string
+}
+
+// 智谱 GLM Coding Plan 官方套餐用量（后端 usage_info 归一化结构）
+export interface ZhipuUsageWindow {
+  used_percent: number
+  reset_at: number // unix 秒，0 表示未知
+}
+
+export interface ZhipuMcpMonthly {
+  used: number
+  total: number
+}
+
+export interface ZhipuUsageInfo {
+  provider: string
+  level?: string
+  five_hour?: ZhipuUsageWindow
+  weekly?: ZhipuUsageWindow
+  mcp_monthly?: ZhipuMcpMonthly
+  updated_at: number
+}
+
+export interface ZhipuUsageResponse {
+  success: boolean
+  message?: string
+  data?: ZhipuUsageInfo
 }
 
 export interface FetchModelsResponse {

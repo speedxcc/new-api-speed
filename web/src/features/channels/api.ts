@@ -38,6 +38,7 @@ import type {
   SearchChannelsParams,
   SearchChannelsResponse,
   TagOperationParams,
+  ZhipuUsageResponse,
 } from './types'
 
 const channelActionConfig = (
@@ -339,6 +340,19 @@ export async function getCodexUsage(
 ): Promise<CodexUsageResponse> {
   const res = await api.get(
     `/api/channel/${channelId}/codex/usage`,
+    channelActionConfig({ disableDuplicate: true })
+  )
+  return res.data
+}
+
+/**
+ * Fetch Zhipu GLM Coding Plan official plan usage for a channel
+ */
+export async function getZhipuUsage(
+  channelId: number
+): Promise<ZhipuUsageResponse> {
+  const res = await api.get(
+    `/api/channel/${channelId}/zhipu/usage`,
     channelActionConfig({ disableDuplicate: true })
   )
   return res.data

@@ -55,19 +55,24 @@ import {
 import { formatTimestampToDate } from '@/lib/format'
 import { truncateText } from '@/lib/utils'
 
-import { getCodexUsage, updateChannelBalance } from '../api'
+import { getCodexUsage, getZhipuUsage, updateChannelBalance } from '../api'
 import { CHANNEL_STATUS_CONFIG, MODEL_FETCHABLE_TYPES } from '../constants'
 import {
   formatRelativeTime,
   formatResponseTime,
+  formatUsageCountdown,
+  formatUsagePercent,
   getBalanceVariant,
   getChannelTypeIcon,
   getChannelTypeLabel,
   getResponseTimeConfig,
+  getUsageVariant,
   isMultiKeyChannel,
+  isZhipuUsageChannel,
   parseModelsList,
   parseGroupsList,
   parseChannelSettings,
+  parseZhipuUsageInfo,
   channelsQueryKeys,
   handleUpdateChannelField,
   handleUpdateTagField,
@@ -76,7 +81,7 @@ import {
   type TagRow,
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
-import type { Channel } from '../types'
+import type { Channel, ZhipuUsageWindow } from '../types'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { useChannels } from './channels-provider'
 import { DataTableRowActions } from './data-table-row-actions'
@@ -422,6 +427,13 @@ export function BalanceCell({ channel }: { channel: Channel }) {
   // Regular channel row: show used and remaining with click to update
   const variant = getBalanceVariant(balance)
 
+  const zhipuUsageChannel = isZhipuUsageChannel(channel)
+  const zhipuUsage = zhipuUsageChannel
+    ? parseZhipuUsageInfo(channel.usage_info)
+    : null
+  const zhipuFiveHour = zhipuUsage?.five_hour
+  const zhipuWeekly = zhipuUsage?.weekly
+
   const handleClickUpdate = async () => {
     if (isUpdating) {
       return
@@ -436,6 +448,26 @@ export function BalanceCell({ channel }: { channel: Channel }) {
         }
         setCodexUsageResponse(res)
         setCodexUsageOpen(true)
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t('Failed to fetch usage')
+        )
+      } finally {
+        setIsUpdating(false)
+      }
+      return
+    }
+
+    if (zhipuUsageChannel) {
+      try {
+        const res = await getZhipuUsage(channel.id)
+        if (!res.success) {
+          throw new Error(res.message || t('Failed to fetch usage'))
+        }
+        toast.success(t('Plan usage updated'))
+        void queryClient.invalidateQueries({
+          queryKey: channelsQueryKeys.lists(),
+        })
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : t('Failed to fetch usage')
@@ -480,19 +512,78 @@ export function BalanceCell({ channel }: { channel: Channel }) {
     remainingBadgeLabel = t('Updating...')
   } else if (sensitiveVisible && channel.type === 57) {
     remainingBadgeLabel = t('Account Info')
+  } else if (sensitiveVisible && zhipuUsageChannel) {
+    remainingBadgeLabel = t('Plan Usage')
   }
   let remainingTooltipLabel = remainingLabel
   if (!sensitiveVisible) {
     remainingTooltipLabel = maskedRemainingLabel
   } else if (channel.type === 57) {
     remainingTooltipLabel = t('Click to view Codex usage')
+  } else if (zhipuUsageChannel) {
+    remainingTooltipLabel = t('Click to refresh plan usage')
   }
   let remainingBadgeVariant: StatusBadgeProps['variant'] = variant
-  if (channel.type === 57) {
+  if (channel.type === 57 || zhipuUsageChannel) {
     remainingBadgeVariant = 'info'
   } else if (isUpdating) {
     remainingBadgeVariant = 'neutral'
   }
+
+  const zhipuWindowBadge = (label: string, window: ZhipuUsageWindow) => {
+    const countdown = formatUsageCountdown(window.reset_at)
+    return (
+      <Tooltip key={label}>
+        <TooltipTrigger
+          render={
+            <StatusBadge
+              label={`${label}: ${formatUsagePercent(window.used_percent)}${
+                countdown ? ` ${countdown}` : ''
+              }`}
+              variant={getUsageVariant(window.used_percent)}
+              size='sm'
+              copyable={false}
+              showDot={false}
+              className='cursor-pointer'
+              onClick={handleClickUpdate}
+            />
+          }
+        />
+        <TooltipContent>
+          {window.reset_at > 0 && (
+            <p>
+              {t('Resets at:')} {formatTimestampToDate(window.reset_at)}
+            </p>
+          )}
+          {zhipuUsage?.level && (
+            <p>
+              {t('Level')}: {zhipuUsage.level}
+            </p>
+          )}
+          {zhipuUsage?.mcp_monthly && (
+            <p>
+              {t('MCP Monthly')}: {zhipuUsage.mcp_monthly.used}/
+              {zhipuUsage.mcp_monthly.total}
+            </p>
+          )}
+          {zhipuUsage && zhipuUsage.updated_at > 0 && (
+            <p>
+              {t('Last updated:')}{' '}
+              {formatTimestampToDate(zhipuUsage.updated_at)}
+            </p>
+          )}
+          <p>{t('Click to refresh plan usage')}</p>
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  // 智谱套餐渠道：已有窗口数据时用 5小时/7天 用量徽章替代「剩余」徽章
+  const showZhipuWindowBadges =
+    zhipuUsageChannel &&
+    sensitiveVisible &&
+    !isUpdating &&
+    zhipuFiveHour !== undefined
 
   return (
     <TooltipProvider>
@@ -514,25 +605,34 @@ export function BalanceCell({ channel }: { channel: Channel }) {
             <p>{sensitiveVisible ? usedLabel : maskedUsedLabel}</p>
           </TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <StatusBadge
-                label={remainingBadgeLabel}
-                variant={remainingBadgeVariant}
-                size='sm'
-                copyable={false}
-                showDot={false}
-                className='cursor-pointer'
-                onClick={handleClickUpdate}
-              />
-            }
-          />
-          <TooltipContent>
-            <p>{remainingTooltipLabel}</p>
-            {channel.type !== 57 && <p>{t('Click to update balance')}</p>}
-          </TooltipContent>
-        </Tooltip>
+        {showZhipuWindowBadges ? (
+          <>
+            {zhipuFiveHour && zhipuWindowBadge(t('5h'), zhipuFiveHour)}
+            {zhipuWeekly && zhipuWindowBadge(t('7d'), zhipuWeekly)}
+          </>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <StatusBadge
+                  label={remainingBadgeLabel}
+                  variant={remainingBadgeVariant}
+                  size='sm'
+                  copyable={false}
+                  showDot={false}
+                  className='cursor-pointer'
+                  onClick={handleClickUpdate}
+                />
+              }
+            />
+            <TooltipContent>
+              <p>{remainingTooltipLabel}</p>
+              {channel.type !== 57 && !zhipuUsageChannel && (
+                <p>{t('Click to update balance')}</p>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
 
       <CodexUsageDialog

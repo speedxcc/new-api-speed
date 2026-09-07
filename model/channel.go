@@ -36,6 +36,7 @@ type Channel struct {
 	Other              string  `json:"other"`
 	Balance            float64 `json:"balance"` // in USD
 	BalanceUpdatedTime int64   `json:"balance_updated_time" gorm:"bigint"`
+	UsageInfo          *string `json:"usage_info" gorm:"type:text"` // 订阅套餐用量信息（如智谱 GLM Coding Plan 的 5小时/每周窗口），JSON
 	Models             string  `json:"models"`
 	Group              string  `json:"group" gorm:"type:varchar(64);default:'default'"`
 	UsedQuota          int64   `json:"used_quota" gorm:"bigint;default:0"`
@@ -623,6 +624,15 @@ func (channel *Channel) UpdateBalance(balance float64) {
 	}).Error
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to update balance: channel_id=%d, error=%v", channel.Id, err))
+	}
+}
+
+func (channel *Channel) UpdateUsageInfo(usageInfo string) {
+	err := DB.Model(channel).Select("usage_info").Updates(Channel{
+		UsageInfo: &usageInfo,
+	}).Error
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to update usage info: channel_id=%d, error=%v", channel.Id, err))
 	}
 }
 

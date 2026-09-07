@@ -549,6 +549,16 @@ func UpdateChannelBalance(c *gin.Context) {
 		})
 		return
 	}
+	if service.IsZhipuUsageChannel(channel) {
+		// 智谱套餐渠道没有传统余额概念，改为查询官方套餐用量
+		usage, err := fetchZhipuUsageForChannel(c, channel)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": usage})
+		return
+	}
 	result, err := updateChannelBalance(channel)
 	if err != nil {
 		common.ApiError(c, err)
@@ -577,6 +587,12 @@ func updateAllChannelsBalance() error {
 		}
 		if channel.ChannelInfo.IsMultiKey {
 			continue // skip multi-key channels
+		}
+		if service.IsZhipuUsageChannel(channel) {
+			// 智谱套餐渠道没有传统余额概念，改为刷新官方套餐用量
+			refreshZhipuChannelUsage(channel)
+			time.Sleep(common.RequestInterval)
+			continue
 		}
 		// TODO: support Azure
 		//if channel.Type != common.ChannelTypeOpenAI && channel.Type != common.ChannelTypeCustom {

@@ -25,6 +25,12 @@ export const CHANNEL_TYPE_NEW_API = 60
 
 export const CHANNEL_TYPE_TASK_PLUGIN = 61
 
+export const CHANNEL_TYPE_ANTHROPIC = 14
+
+export const CHANNEL_TYPE_ZHIPU = 16
+
+export const CHANNEL_TYPE_ZHIPU_V4 = 26
+
 export const CHANNEL_TYPES = {
   0: 'Unknown',
   1: 'OpenAI',
