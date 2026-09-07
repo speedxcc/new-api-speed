@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -21,35 +23,45 @@ func abortWithOpenAiMessage(c *gin.Context, statusCode int, message string, code
 	userId := c.GetInt("id")
 	messageWithId := common.MessageWithRequestId(message, c.GetString(common.RequestIdKey))
 
-	// 按请求格式选择错误结构：Claude 请求（/v1/messages）用 Anthropic 标准格式，
-	// 其他保持 OpenAI 格式。这样 Claude Code / VS Code 扩展能正确识别内部错误
-	// （模型未配置、鉴权失败、限流等），不会因格式不匹配而显示成"无响应"。
-	if isClaudeRequest(c) {
-		errorType := inferClaudeErrorType(codeStr)
-		// Anthropic 规范状态码：模型不存在=404，其他按原状态码
-		claudeStatus := mapClaudeStatusCode(statusCode, codeStr)
+	// 插件路由准备好的请求优先按任务插件协议响应错误（上游逻辑）。
+	_, preparedPluginRoute := c.Get(pluginruntime.ContextKeyRouteRequest)
+	pluginResponded := preparedPluginRoute && RespondTaskPluginError(c, &dto.TaskError{
+		Code:       codeStr,
+		Message:    message,
+		StatusCode: statusCode,
+	})
 
-		if isStreamRequest(c) {
-			// 流式：Claude 客户端期望 SSE，用 event: error 返回，否则流式解析器无法处理
-			helper.WriteClaudeStreamError(c, claudeStatus, errorType, messageWithId)
+	if !pluginResponded {
+		// 按请求格式选择错误结构：Claude 请求（/v1/messages）用 Anthropic 标准格式，
+		// 其他保持 OpenAI 格式。这样 Claude Code / VS Code 扩展能正确识别内部错误
+		// （模型未配置、鉴权失败、限流等），不会因格式不匹配而显示成"无响应"。
+		if isClaudeRequest(c) {
+			errorType := inferClaudeErrorType(codeStr)
+			// Anthropic 规范状态码：模型不存在=404，其他按原状态码
+			claudeStatus := mapClaudeStatusCode(statusCode, codeStr)
+
+			if isStreamRequest(c) {
+				// 流式：Claude 客户端期望 SSE，用 event: error 返回，否则流式解析器无法处理
+				helper.WriteClaudeStreamError(c, claudeStatus, errorType, messageWithId)
+			} else {
+				// 非流式：JSON 格式
+				c.JSON(claudeStatus, gin.H{
+					"type": "error",
+					"error": gin.H{
+						"type":    errorType,
+						"message": messageWithId,
+					},
+				})
+			}
 		} else {
-			// 非流式：JSON 格式
-			c.JSON(claudeStatus, gin.H{
-				"type": "error",
+			c.JSON(statusCode, gin.H{
 				"error": gin.H{
-					"type":    errorType,
 					"message": messageWithId,
+					"type":    "new_api_error",
+					"code":    codeStr,
 				},
 			})
 		}
-	} else {
-		c.JSON(statusCode, gin.H{
-			"error": gin.H{
-				"message": messageWithId,
-				"type":    "new_api_error",
-				"code":    codeStr,
-			},
-		})
 	}
 	c.Abort()
 	logger.LogError(c.Request.Context(), fmt.Sprintf("user %d | %s", userId, message))
