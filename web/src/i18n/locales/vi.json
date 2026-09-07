@@ -678,6 +678,7 @@
     "By requests": "Theo số yêu cầu",
     "By tokens": "Theo số token",
     "Cache": "Bộ nhớ đệm",
+    "Include cache": "Bao gồm bộ nhớ đệm",
     "Cache create (1h) price": "Giá tạo cache (1 giờ)",
     "Cache create price": "Giá tạo cache",
     "Cache Creation": "Tạo cache",

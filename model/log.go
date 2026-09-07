@@ -692,6 +692,123 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	return token
 }
 
+// TokenUsageStat 汇总 token 用量;TotalTokens 与日志口径一致(不含 Anthropic 缓存),
+// TotalTokensInclCache 把缓存读/写 token 计入总输入。
+type TokenUsageStat struct {
+	TotalTokens          int64 `json:"total_tokens"`
+	TotalTokensInclCache int64 `json:"total_tokens_incl_cache"`
+	CacheReadTokens      int64 `json:"cache_read_tokens"`
+	CacheWriteTokens     int64 `json:"cache_write_tokens"`
+}
+
+type TokenUsageStatFilter struct {
+	StartTime int64
+	EndTime   int64
+	UserId    int
+	Username  string
+}
+
+// logUsageOtherFields 只解析 token 用量聚合需要的 other 字段。
+type logUsageOtherFields struct {
+	InputTokensTotal      int    `json:"input_tokens_total"`
+	CacheTokens           int    `json:"cache_tokens"`
+	CacheCreationTokens   int    `json:"cache_creation_tokens"`
+	CacheCreationTokens5m int    `json:"cache_creation_tokens_5m"`
+	CacheCreationTokens1h int    `json:"cache_creation_tokens_1h"`
+	CacheWriteTokens      int    `json:"cache_write_tokens"`
+	UsageSemantic         string `json:"usage_semantic"`
+	AdminInfo             struct {
+		UsageBillingPath string `json:"usage_billing_path"`
+	} `json:"admin_info"`
+}
+
+func isAnthropicUsageLog(other logUsageOtherFields) bool {
+	return other.UsageSemantic == "anthropic" ||
+		strings.HasPrefix(other.AdminInfo.UsageBillingPath, "billing-usage-anthropic")
+}
+
+// cacheWriteTokensFromOther 与 service.cacheWriteTokensTotal 的回退口径一致:
+// 优先取写入的 cache_write_tokens,缺失时按 5m/1h 拆分值与 cache_creation_tokens 取大。
+func cacheWriteTokensFromOther(other logUsageOtherFields) int {
+	if other.CacheWriteTokens > 0 {
+		return other.CacheWriteTokens
+	}
+	split := other.CacheCreationTokens5m + other.CacheCreationTokens1h
+	if other.CacheCreationTokens5m > 0 || other.CacheCreationTokens1h > 0 {
+		if other.CacheCreationTokens > split {
+			return other.CacheCreationTokens
+		}
+		return split
+	}
+	return other.CacheCreationTokens
+}
+
+func (stat *TokenUsageStat) addLogUsageRow(promptTokens int, completionTokens int, otherRaw string) {
+	base := int64(promptTokens) + int64(completionTokens)
+	total := base
+	if otherRaw != "" {
+		var other logUsageOtherFields
+		if err := common.Unmarshal([]byte(otherRaw), &other); err == nil {
+			cacheWrite := cacheWriteTokensFromOther(other)
+			stat.CacheReadTokens += int64(other.CacheTokens)
+			stat.CacheWriteTokens += int64(cacheWrite)
+			if other.InputTokensTotal > 0 {
+				// input_tokens_total 已是归一化的含缓存总输入
+				total = int64(other.InputTokensTotal) + int64(completionTokens)
+			} else if isAnthropicUsageLog(other) {
+				// Anthropic 口径的 input_tokens 不含缓存,加回缓存读/写;
+				// OpenAI 口径的 prompt_tokens 本身已含缓存命中,不能重复加
+				total = base + int64(other.CacheTokens) + int64(cacheWrite)
+			}
+		}
+	}
+	stat.TotalTokens += base
+	stat.TotalTokensInclCache += total
+}
+
+// GetTokenUsageStat 从 logs 表流式扫描聚合 token 用量,在 Go 侧解析 other JSON,
+// 避免 JSON 提取语法差异导致 SQLite/MySQL/Postgres/ClickHouse 不可移植。
+func GetTokenUsageStat(filter TokenUsageStatFilter) (*TokenUsageStat, error) {
+	tx := LOG_DB.Table("logs").
+		Select("prompt_tokens", "completion_tokens", "other").
+		Where("type = ?", LogTypeConsume)
+	if filter.StartTime != 0 {
+		tx = tx.Where("created_at >= ?", filter.StartTime)
+	}
+	if filter.EndTime != 0 {
+		tx = tx.Where("created_at <= ?", filter.EndTime)
+	}
+	if filter.UserId != 0 {
+		tx = tx.Where("user_id = ?", filter.UserId)
+	}
+	if filter.Username != "" {
+		tx = tx.Where("username = ?", filter.Username)
+	}
+
+	rows, err := tx.Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stat := &TokenUsageStat{}
+	var row struct {
+		PromptTokens     int    `gorm:"column:prompt_tokens"`
+		CompletionTokens int    `gorm:"column:completion_tokens"`
+		Other            string `gorm:"column:other"`
+	}
+	for rows.Next() {
+		if err := LOG_DB.ScanRows(rows, &row); err != nil {
+			return nil, err
+		}
+		stat.addLogUsageRow(row.PromptTokens, row.CompletionTokens, row.Other)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return stat, nil
+}
+
 func CountOldLog(ctx context.Context, targetTimestamp int64) (int64, error) {
 	var total int64
 	if err := LOG_DB.WithContext(ctx).Model(&Log{}).Where("created_at < ?", targetTimestamp).Count(&total).Error; err != nil {

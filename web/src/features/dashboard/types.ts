@@ -33,6 +33,15 @@ export interface QuotaDataItem {
   quota?: number
 }
 
+// Token usage aggregated from logs; incl-cache totals add cache read/write
+// tokens on top of the logged prompt/completion tokens.
+export interface TokenUsageStats {
+  total_tokens: number
+  total_tokens_incl_cache: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+}
+
 export interface FlowQuotaDataItem {
   user_id?: number
   username?: string

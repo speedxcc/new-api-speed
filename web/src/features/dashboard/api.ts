@@ -21,6 +21,7 @@ import { api } from '@/lib/api'
 import type {
   FlowQuotaDataItem,
   QuotaDataItem,
+  TokenUsageStats,
   UptimeGroupResult,
 } from './types'
 
@@ -48,6 +49,24 @@ export async function getUserQuotaDates(
     endpoint,
     { params }
   )
+  return res.data
+}
+
+// Token usage stats aggregated from logs, with cache-inclusive totals
+export async function getTokenUsageStats(
+  params: {
+    start_timestamp: number
+    end_timestamp: number
+    username?: string
+  },
+  isAdmin = false
+) {
+  const endpoint = isAdmin ? '/api/data/token-stats' : '/api/data/token-stats/self'
+  const res = await api.get<{
+    success: boolean
+    data?: TokenUsageStats
+    message?: string
+  }>(endpoint, { params })
   return res.data
 }
 

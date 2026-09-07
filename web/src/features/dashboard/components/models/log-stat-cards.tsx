@@ -21,7 +21,9 @@ import { useTranslation } from 'react-i18next'
 
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getUserQuotaDates } from '@/features/dashboard/api'
+import { Switch } from '@/components/ui/switch'
+import { getTokenUsageStats, getUserQuotaDates } from '@/features/dashboard/api'
+import { TOKENS_INCLUDE_CACHE_STORAGE_KEY } from '@/features/dashboard/constants'
 import { useModelStatCardsConfig } from '@/features/dashboard/hooks/use-dashboard-config'
 import {
   buildQueryParams,
@@ -31,6 +33,7 @@ import {
 import type {
   QuotaDataItem,
   DashboardFilters,
+  TokenUsageStats,
 } from '@/features/dashboard/types'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatCompactNumber, formatNumber, formatQuota } from '@/lib/format'
@@ -44,6 +47,24 @@ interface LogStatCardsProps {
 }
 
 const MAX_INLINE_STAT_CHARS = 9
+
+function readSavedIncludeCache(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return localStorage.getItem(TOKENS_INCLUDE_CACHE_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function saveIncludeCache(enabled: boolean): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(TOKENS_INCLUDE_CACHE_STORAGE_KEY, enabled ? '1' : '0')
+  } catch {
+    // ignore persistence failures (e.g. private mode)
+  }
+}
 
 function formatStatNumber(value: number, locale: Intl.LocalesArgument) {
   const fullValue = formatNumber(value, locale)
@@ -59,7 +80,7 @@ function formatStatNumber(value: number, locale: Intl.LocalesArgument) {
 }
 
 export function LogStatCards(props: LogStatCardsProps) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const statCardsConfig = useModelStatCardsConfig()
   const user = useAuthStore((state) => state.auth.user)
   const isAdmin = !!(user?.role && user.role >= 10)
@@ -70,6 +91,10 @@ export function LogStatCards(props: LogStatCardsProps) {
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [includeCache, setIncludeCache] = useState(readSavedIncludeCache)
+  const [cacheStats, setCacheStats] = useState<TokenUsageStats | null>(null)
+  const [cacheLoading, setCacheLoading] = useState(false)
+  const [cacheError, setCacheError] = useState(false)
 
   const [timeRangeMinutes, setTimeRangeMinutes] = useState(0)
 
@@ -115,15 +140,65 @@ export function LogStatCards(props: LogStatCardsProps) {
     }
   }, [filters, isAdmin, onDataUpdate])
 
+  useEffect(() => {
+    if (!includeCache) return
+    const abortController = new AbortController()
+    setCacheLoading(true)
+    setCacheError(false)
+
+    const timeRange = computeTimeRange(
+      getDefaultDays(filters?.time_granularity),
+      filters?.start_timestamp,
+      filters?.end_timestamp
+    )
+
+    void getTokenUsageStats(buildQueryParams(timeRange, filters), isAdmin)
+      .then((res) => {
+        if (abortController.signal.aborted) return
+        if (res?.success && res.data) {
+          setCacheStats(res.data)
+        } else {
+          setCacheStats(null)
+          setCacheError(true)
+        }
+      })
+      .catch(() => {
+        if (abortController.signal.aborted) return
+        setCacheStats(null)
+        setCacheError(true)
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) {
+          setCacheLoading(false)
+        }
+      })
+
+    return () => {
+      abortController.abort()
+    }
+  }, [includeCache, filters, isAdmin])
+
+  const handleIncludeCacheToggle = (checked: boolean) => {
+    setIncludeCache(checked)
+    saveIncludeCache(checked)
+  }
+
   const adaptedStats = {
     rpm: stats?.totalCount ?? 0,
     quota: stats?.totalQuota ?? 0,
     tpm: stats?.totalTokens ?? 0,
   }
 
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const useCacheTotal =
+    includeCache && !!cacheStats && !cacheError && cacheStats.total_tokens_incl_cache > 0
+
   const items = statCardsConfig.map((config) => {
-    const rawValue = config.getValue(adaptedStats, timeRangeMinutes)
-    const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+    const isTokensCard = config.key === 'tokens'
+    const rawValue =
+      isTokensCard && useCacheTotal
+        ? cacheStats.total_tokens_incl_cache
+        : config.getValue(adaptedStats, timeRangeMinutes)
     const formatted =
       config.key === 'quota'
         ? {
@@ -132,13 +207,28 @@ export function LogStatCards(props: LogStatCardsProps) {
           }
         : formatStatNumber(rawValue, locale)
 
+    let desc = config.description
+    if (isTokensCard && useCacheTotal) {
+      desc = `${t('Cache')}↓ ${formatCompactNumber(cacheStats.cache_read_tokens, locale)} · ↑ ${formatCompactNumber(cacheStats.cache_write_tokens, locale)}`
+    }
+
     return {
       title: config.title,
       value: formatted.displayValue,
       fullValue: formatted.fullValue,
-      desc: config.description,
+      desc,
       icon: config.icon,
       iconTone: config.iconTone,
+      headerExtra: isTokensCard ? (
+        <Switch
+          size='sm'
+          checked={includeCache}
+          onCheckedChange={handleIncludeCacheToggle}
+          aria-label={t('Include cache')}
+          title={t('Include cache')}
+        />
+      ) : undefined,
+      valueDimmed: isTokensCard && includeCache && cacheLoading,
     }
   })
 
@@ -170,12 +260,15 @@ export function LogStatCards(props: LogStatCardsProps) {
             valueContent = (
               <>
                 <div
-                  className='text-foreground mt-1 max-w-full truncate font-mono text-base leading-tight font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl sm:leading-normal'
+                  className={cn(
+                    'text-foreground mt-1 max-w-full truncate font-mono text-base leading-tight font-bold tracking-tight tabular-nums sm:mt-2 sm:text-2xl sm:leading-normal',
+                    it.valueDimmed && 'animate-pulse opacity-60'
+                  )}
                   title={it.fullValue}
                 >
                   {it.value}
                 </div>
-                <div className='text-muted-foreground/60 mt-1 hidden text-xs md:block'>
+                <div className='text-muted-foreground/60 mt-1 hidden truncate text-xs md:block'>
                   {it.desc}
                 </div>
               </>
@@ -203,6 +296,7 @@ export function LogStatCards(props: LogStatCardsProps) {
                 <div className='text-muted-foreground truncate text-[11px] leading-4 font-medium tracking-wide uppercase sm:text-xs sm:tracking-wider'>
                   {it.title}
                 </div>
+                {it.headerExtra && <div className='ml-auto shrink-0'>{it.headerExtra}</div>}
               </div>
 
               {valueContent}

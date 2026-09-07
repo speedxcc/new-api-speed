@@ -678,6 +678,7 @@
     "By requests": "按請求數",
     "By tokens": "按 Token",
     "Cache": "緩存",
+    "Include cache": "含快取",
     "Cache create (1h) price": "1 小時緩存寫入價格",
     "Cache create price": "緩存寫入價格",
     "Cache Creation": "緩存建立",
