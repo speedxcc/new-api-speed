@@ -1,6 +1,11 @@
 package model
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestCacheWriteTokensFromOther(t *testing.T) {
 	tests := []struct {
@@ -44,9 +49,7 @@ func TestCacheWriteTokensFromOther(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := cacheWriteTokensFromOther(tt.other); got != tt.want {
-				t.Errorf("cacheWriteTokensFromOther() = %v, want %v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, cacheWriteTokensFromOther(tt.other))
 		})
 	}
 }
@@ -113,15 +116,9 @@ func TestAddLogUsageRow(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			stat := &TokenUsageStat{}
 			stat.addLogUsageRow(tt.prompt, tt.completion, tt.otherRaw)
-			if stat.TotalTokens != int64(tt.prompt+tt.completion) {
-				t.Errorf("TotalTokens = %v, want %v", stat.TotalTokens, tt.prompt+tt.completion)
-			}
-			if stat.TotalTokensInclCache != tt.wantTotal {
-				t.Errorf("TotalTokensInclCache = %v, want %v", stat.TotalTokensInclCache, tt.wantTotal)
-			}
-			if stat.CacheReadTokens != tt.wantCache {
-				t.Errorf("CacheReadTokens = %v, want %v", stat.CacheReadTokens, tt.wantCache)
-			}
+			require.Equal(t, int64(tt.prompt+tt.completion), stat.TotalTokens)
+			assert.Equal(t, tt.wantTotal, stat.TotalTokensInclCache)
+			assert.Equal(t, tt.wantCache, stat.CacheReadTokens)
 		})
 	}
 }
